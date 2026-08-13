@@ -28,7 +28,7 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:gravity="center_vertical"
-            android:text="输出设置"
+            android:text="资源解析设置"
             android:textColor="@color/text_main"
             android:textSize="16sp"
             android:textStyle="bold" />
@@ -50,10 +50,50 @@
             android:orientation="vertical"
             android:padding="16dp">
 
+            <!-- 输出路径卡片 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/card_bg"
+                android:orientation="vertical"
+                android:padding="20dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="输出路径"
+                    android:textColor="@color/text_main"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="解析结果 TXT 自动保存到该绝对路径目录，需授予存储权限（如 /sdcard/工具输出）"
+                    android:textColor="@color/text_sub"
+                    android:textSize="12sp" />
+
+                <EditText
+                    android:id="@+id/parsePathInput"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/edit_bg"
+                    android:hint="/sdcard/APK解析工具（可含子目录，如 /sdcard/工具输出）"
+                    android:inputType="text"
+                    android:maxLines="1"
+                    android:padding="10dp"
+                    android:textColor="@color/text_main"
+                    android:textColorHint="@color/text_hint"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
             <!-- 语言卡片 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
                 android:background="@drawable/card_bg"
                 android:orientation="vertical"
                 android:padding="20dp">

@@ -6,6 +6,17 @@ android {
     namespace 'com.apkreader'
     compileSdk 34
 
+    // 正式版签名：密钥 app/release.jks 公开随仓库分发（360 修复功能运行时要用
+    // 同一密钥重新签名输出 APK，密钥已作为 asset 打进应用，故不做私有化）。
+    signingConfigs {
+        release {
+            storeFile file('release.jks')
+            storePassword 'ApkReader@2026'
+            keyAlias 'apkreader'
+            keyPassword 'ApkReader@2026'
+        }
+    }
+
     defaultConfig {
         applicationId "com.apkreader"
         minSdk 21
@@ -18,6 +29,7 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
         }
     }
     compileOptions {
@@ -28,4 +40,12 @@ android {
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
+    // dex 反汇编/汇编（360 正则修复用）。
+    // 说明：google maven 只发布 com.android.tools.smali:smali（仅汇编器），baksmali 反汇编器
+    // 只在 Maven Central 发布，且最高成套版本为 org.smali 2.5.2（smali 与 baksmali 共用同一 dexlib2）。
+    // 两个工具以 .smali 文本为中间产物，文本格式与 3.x 一致，故用 2.5.2 成套坐标。
+    implementation 'org.smali:smali:2.5.2'
+    implementation 'org.smali:baksmali:2.5.2'
+    // APK 重打包签名（360 正则修复用）
+    implementation 'com.android.tools.build:apksig:8.5.2'
 }

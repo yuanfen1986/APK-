@@ -29,6 +29,8 @@ public class AXmlParser {
     private ByteBuffer buf;
     private String[] strings;
     private final Map<Integer, String> resNames;
+    /** 缩进字符串缓存（每层深度一份），避免每行重复拼接 4 空格。解析器每次 parse 新建，缓存随实例生命周期。 */
+    private String[] indentCache = new String[16];
 
     /** @param resNames 可选的资源 id -> "type/name" 映射，用于把 @0x7f030001 还原成 @string/app_name */
     public AXmlParser(Map<Integer, String> resNames) {
@@ -36,6 +38,30 @@ public class AXmlParser {
     }
 
     public String parse(byte[] xml) throws Exception {
+        Node root = parseTree(xml);
+        // 收集所有用到的命名空间 URI，生成前缀
+        Set<String> usedUris = new LinkedHashSet<>();
+        collectNs(root, usedUris);
+        Map<String, String> nsPrefix = new LinkedHashMap<>();
+        int auto = 1;
+        for (String uri : usedUris) {
+            String p = nsPrefixOf(uri);
+            if (p == null) p = "ns" + (auto++);
+            nsPrefix.put(uri, p);
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
+        render(root, 0, sb, nsPrefix);
+        return sb.toString();
+    }
+
+    /**
+     * 解析二进制 XML 并返回根节点树，不生成文本。
+     * 编辑场景（AXmlEditor）需要结构而非文本：先调用本方法拿到树，
+     * 再对原始字节做定点修改。调用后 strings 字段保留字符串池内容供读取。
+     */
+    public Node parseTree(byte[] xml) throws Exception {
         if (xml == null || xml.length < 8) throw new Exception("XML 数据为空");
         buf = ByteBuffer.wrap(xml).order(ByteOrder.LITTLE_ENDIAN);
         int type = ResUtil.u16(buf);
@@ -89,22 +115,7 @@ public class AXmlParser {
             }
         }
         if (root == null) throw new Exception("未找到 XML 根节点");
-
-        // 收集所有用到的命名空间 URI，生成前缀
-        Set<String> usedUris = new LinkedHashSet<>();
-        collectNs(root, usedUris);
-        Map<String, String> nsPrefix = new LinkedHashMap<>();
-        int auto = 1;
-        for (String uri : usedUris) {
-            String p = nsPrefixOf(uri);
-            if (p == null) p = "ns" + (auto++);
-            nsPrefix.put(uri, p);
-        }
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
-        render(root, 0, sb, nsPrefix);
-        return sb.toString();
+        return root;
     }
 
     /** 读取一个 START ELEMENT chunk 头与属性（不含子节点）。 */
@@ -208,11 +219,27 @@ public class AXmlParser {
         }
     }
 
-    private static void indent(StringBuilder sb, int depth) {
+    private void indent(StringBuilder sb, int depth) {
         sb.append(indentStr(depth));
     }
 
-    private static String indentStr(int depth) {
+    private String indentStr(int depth) {
+        if (depth >= indentCache.length) {
+            int n = indentCache.length;
+            while (n <= depth) n <<= 1;
+            String[] grown = new String[n];
+            System.arraycopy(indentCache, 0, grown, 0, indentCache.length);
+            indentCache = grown;
+        }
+        String s = indentCache[depth];
+        if (s == null) {
+            s = buildIndent(depth);
+            indentCache[depth] = s;
+        }
+        return s;
+    }
+
+    private static String buildIndent(int depth) {
         StringBuilder sb = new StringBuilder(depth * 4);
         for (int i = 0; i < depth; i++) sb.append("    ");
         return sb.toString();

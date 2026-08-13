@@ -1,108 +1,324 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- MIUI 风格主界面：浅灰背景 + 白色圆角卡片 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- MIUI 风格主界面：浅灰背景 + 白色圆角卡片 + 底部三 tab（资源解析 / 360 正则修复 / 权限添加）；
+     右上角关于按钮（黑色 i 图标），右下角设置悬浮按钮（齿轮图标，跟随当前 tab） -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg_gray"
-    android:orientation="vertical"
-    android:padding="24dp">
+    android:background="@color/bg_gray">
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:layout_marginBottom="16dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-
-        <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="APK 解析工具"
-            android:textColor="@color/text_main"
-            android:textSize="18sp"
-            android:textStyle="bold" />
-
-        <ImageButton
-            android:id="@+id/btnSettings"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@null"
-            android:contentDescription="输出设置"
-            android:padding="8dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_settings" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@drawable/card_bg"
+        android:layout_height="match_parent"
         android:orientation="vertical"
-        android:padding="28dp">
+        android:padding="24dp">
 
-        <TextView
-            android:id="@+id/tvIcon"
-            android:layout_width="76dp"
-            android:layout_height="76dp"
-            android:layout_gravity="center_horizontal"
-            android:background="@drawable/icon_bg"
-            android:gravity="center"
-            android:text="APK"
-            android:textColor="@color/white"
-            android:textSize="24sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal"
-            android:layout_marginTop="20dp"
-            android:text="APK 资源解析工具"
-            android:textColor="@color/text_main"
-            android:textSize="20sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal"
-            android:layout_marginTop="10dp"
-            android:gravity="center"
-            android:lineSpacingExtra="4dp"
-            android:text="读取 APK 中的 AndroidManifest.xml\n与 resources.arsc，解码为 TXT 文本"
-            android:textColor="@color/text_sub"
-            android:textSize="14sp" />
-
-        <Button
-            android:id="@+id/btnPick"
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:layout_marginTop="28dp"
-            android:background="@drawable/btn_primary"
-            android:backgroundTint="@null"
-            android:text="选择 APK 文件"
-            android:textColor="@color/white"
-            android:textSize="16sp" />
-
-        <TextView
-            android:id="@+id/tvStatus"
-            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal"
-            android:layout_marginTop="14dp"
-            android:text="MIUI 风格 · 支持二进制 XML / 资源表解码"
-            android:textColor="@color/text_hint"
-            android:textSize="12sp" />
-    </LinearLayout>
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="16dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center_horizontal"
-        android:layout_marginTop="28dp"
-        android:text="本地解析 · 无需网络 · 数据不出手机"
-        android:textColor="@color/text_hint"
-        android:textSize="12sp" />
-</LinearLayout>
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="APK 解析工具"
+                android:textColor="@color/text_main"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <ImageButton
+                android:id="@+id/btnAbout"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="关于"
+                android:padding="8dp"
+                android:scaleType="centerInside"
+                android:src="@drawable/ic_info" />
+        </LinearLayout>
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <!-- Tab 1：资源解析工具 -->
+            <LinearLayout
+                android:id="@+id/pageParse"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/card_bg"
+                android:orientation="vertical"
+                android:padding="28dp">
+
+                <TextView
+                    android:id="@+id/tvIcon"
+                    android:layout_width="76dp"
+                    android:layout_height="76dp"
+                    android:layout_gravity="center_horizontal"
+                    android:background="@drawable/icon_bg"
+                    android:gravity="center"
+                    android:text="APK"
+                    android:textColor="@color/white"
+                    android:textSize="24sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_horizontal"
+                    android:layout_marginTop="20dp"
+                    android:text="APK 资源解析工具"
+                    android:textColor="@color/text_main"
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_horizontal"
+                    android:layout_marginTop="10dp"
+                    android:gravity="center"
+                    android:lineSpacingExtra="4dp"
+                    android:text="读取 APK 中的 AndroidManifest.xml\n与 resources.arsc，解码为 TXT 文本"
+                    android:textColor="@color/text_sub"
+                    android:textSize="14sp" />
+
+                <Button
+                    android:id="@+id/btnPick"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="28dp"
+                    android:background="@drawable/btn_primary"
+                    android:backgroundTint="@null"
+                    android:text="选择 APK 文件"
+                    android:textColor="@color/white"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/tvStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_horizontal"
+                    android:layout_marginTop="14dp"
+                    android:text="MIUI 风格 · 支持二进制 XML / 资源表解码"
+                    android:textColor="@color/text_hint"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <!-- Tab 2：360 正则修复工具（布局与资源解析卡片几乎一致） -->
+            <LinearLayout
+                android:id="@+id/pageFix"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/card_bg"
+                android:orientation="vertical"
+                android:padding="28dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tvFixIcon"
+                    android:layout_width="76dp"
+                    android:layout_height="76dp"
+                    android:layout_gravity="center_horizontal"
+                    android:background="@drawable/icon_bg"
+                    android:gravity="center"
+                    android:text="360"
+                    android:textColor="@color/white"
+                    android:textSize="24sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_horizontal"
+                    android:layout_marginTop="20dp"
+                    android:text="360 正则修复工具"
+                    android:textColor="@color/text_main"
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_horizontal"
+                    android:layout_marginTop="10dp"
+                    android:gravity="center"
+                    android:lineSpacingExtra="4dp"
+                    android:text="去除 APK 中 360 加固的 StubApp 调用\n反汇编重打包并重新签名"
+                    android:textColor="@color/text_sub"
+                    android:textSize="14sp" />
+
+                <Button
+                    android:id="@+id/btnFixPick"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="28dp"
+                    android:background="@drawable/btn_primary"
+                    android:backgroundTint="@null"
+                    android:text="选择 APK 文件"
+                    android:textColor="@color/white"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/tvFixStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_horizontal"
+                    android:layout_marginTop="14dp"
+                    android:text="本地处理 · 修复后自动保存"
+                    android:textColor="@color/text_hint"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <!-- Tab 3：权限添加工具（布局与修复卡片一致） -->
+            <LinearLayout
+                android:id="@+id/pagePerm"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/card_bg"
+                android:orientation="vertical"
+                android:padding="28dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tvPermIcon"
+                    android:layout_width="76dp"
+                    android:layout_height="76dp"
+                    android:layout_gravity="center_horizontal"
+                    android:background="@drawable/icon_bg"
+                    android:gravity="center"
+                    android:text="权限"
+                    android:textColor="@color/white"
+                    android:textSize="22sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_horizontal"
+                    android:layout_marginTop="20dp"
+                    android:text="权限添加工具"
+                    android:textColor="@color/text_main"
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_horizontal"
+                    android:layout_marginTop="10dp"
+                    android:gravity="center"
+                    android:lineSpacingExtra="4dp"
+                    android:text="向 AndroidManifest.xml 追加选中的权限\n并在入口类注入运行时申请代码，重打包重新签名"
+                    android:textColor="@color/text_sub"
+                    android:textSize="14sp" />
+
+                <Button
+                    android:id="@+id/btnPermPick"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="28dp"
+                    android:background="@drawable/btn_primary"
+                    android:backgroundTint="@null"
+                    android:text="选择 APK 文件"
+                    android:textColor="@color/white"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/tvPermStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_horizontal"
+                    android:layout_marginTop="14dp"
+                    android:text="本地处理 · 修改后自动保存"
+                    android:textColor="@color/text_hint"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <!-- 右下角设置悬浮按钮：图标 24dp，位于底部 tab 栏之上 -->
+            <ImageButton
+                android:id="@+id/btnSettingsFAB"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_gravity="bottom|end"
+                android:layout_marginEnd="20dp"
+                android:layout_marginBottom="8dp"
+                android:background="@drawable/fab_bg"
+                android:contentDescription="设置"
+                android:elevation="6dp"
+                android:padding="16dp"
+                android:scaleType="centerInside"
+                android:src="@drawable/ic_settings" />
+        </FrameLayout>
+
+        <!-- 底部三 tab：资源解析 / 360 正则修复 / 权限添加 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="8dp"
+            android:background="@drawable/tab_bg"
+            android:orientation="horizontal"
+            android:padding="4dp">
+
+            <LinearLayout
+                android:id="@+id/tabParse"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:background="@drawable/tab_active"
+                android:gravity="center"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/tvTabParse"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="资源解析"
+                    android:textColor="@color/text_main"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/tabFix"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:background="@drawable/tab_inactive"
+                android:gravity="center"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/tvTabFix"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="360 正则修复"
+                    android:textColor="@color/text_sub"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/tabPerm"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:background="@drawable/tab_inactive"
+                android:gravity="center"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/tvTabPerm"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="权限添加"
+                    android:textColor="@color/text_sub"
+                    android:textSize="14sp" />
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

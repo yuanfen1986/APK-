@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">APK解析工具</string>
+    <string name="about_author">yuanfen1986</string>
+    <string name="about_repo_url">https://github.com/yuanfen1986/APK-</string>
 </resources>

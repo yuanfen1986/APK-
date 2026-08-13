@@ -206,21 +206,43 @@ public final class ResUtil {
         return new String(c);
     }
 
-    /** XML 文本转义。 */
+    static String hex2(int v) {
+        char[] c = new char[2];
+        c[0] = HEX[(v >> 4) & 0xF];
+        c[1] = HEX[v & 0xF];
+        return new String(c);
+    }
+
+    /** XML 文本转义：无特殊字符时直接返回原串，避免为每个属性分配新字符串。 */
     public static String escapeXml(String s) {
         if (s == null) return "";
-        StringBuilder sb = new StringBuilder(s.length());
+        int first = -1;
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
-            switch (c) {
-                case '&': sb.append("&amp;"); break;
-                case '<': sb.append("&lt;"); break;
-                case '>': sb.append("&gt;"); break;
-                case '"': sb.append("&quot;"); break;
-                case '\'': sb.append("&apos;"); break;
-                default: sb.append(c);
+            if (c == '&' || c == '<' || c == '>' || c == '"' || c == '\'') {
+                first = i;
+                break;
             }
         }
+        if (first < 0) return s;
+        StringBuilder sb = new StringBuilder(s.length());
+        int start = 0;
+        for (int i = first; i < s.length(); i++) {
+            char c = s.charAt(i);
+            String rep;
+            switch (c) {
+                case '&': rep = "&amp;"; break;
+                case '<': rep = "&lt;"; break;
+                case '>': rep = "&gt;"; break;
+                case '"': rep = "&quot;"; break;
+                case '\'': rep = "&apos;"; break;
+                default: continue;
+            }
+            sb.append(s, start, i);
+            sb.append(rep);
+            start = i + 1;
+        }
+        if (start < s.length()) sb.append(s, start, s.length());
         return sb.toString();
     }
 

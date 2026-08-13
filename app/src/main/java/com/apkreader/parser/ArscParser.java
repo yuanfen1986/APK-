@@ -100,11 +100,20 @@ public class ArscParser {
             }
         }
 
+        // 每个 type 只算一次展示用派生字段（typeName/是否带配置后缀/是否 id），供下面的输出循环复用
+        for (Pkg p : pkgs) {
+            for (Type ty : p.types) {
+                ty.typeName = typeName(p, ty);
+                ty.qualified = isQualifiedType(p, ty);
+                ty.isId = "id".equals(ty.typeName);
+            }
+        }
+
         // 收集所有条目的资源 id -> type/name，供 @0x7f030001 引用还原
         Map<Integer, String> resNames = new LinkedHashMap<>();
         for (Pkg p : pkgs) {
             for (Type ty : p.types) {
-                String typeName = typeName(p, ty);
+                String typeName = ty.typeName;
                 for (Entry e : ty.entries) {
                     int id = (int) ((p.id << 24) | (ty.id << 16) | (e.index & 0xFFFF));
                     resNames.put(id, typeName + "/" + e.key);
@@ -115,24 +124,24 @@ public class ArscParser {
 
         for (Pkg p : pkgs) {
             out.append("\n资源包 : ").append(p.name)
-                    .append("  (id=0x").append(String.format("%02x", p.id)).append(")\n");
+                    .append("  (id=0x").append(ResUtil.hex2(p.id)).append(")\n");
             // “仅显示最高版本”：先按 (类型, 语言, 密度) 分组，标出同组中 sdk 较低的块
             Set<Type> maxSkip = (filter != null && filter.versionMode == ConfigFilter.VERSION_MAX)
                     ? filter.maxVersionSkip(p.types) : null;
             for (Type ty : p.types) {
                 // 只看基础类型：string-af / string-am 这类带配置后缀的类型不展示
-                if (isQualifiedType(p, ty)) continue;
+                if (ty.qualified) continue;
                 if (maxSkip != null && maxSkip.contains(ty)) continue;
                 if (filter != null && !filter.keep(ty)) continue;
                 // 配置非默认时标注：多语言 / 多分辨率下同一 ID 会重复出现，标注便于区分
                 String configTag = "default".equals(ty.config) ? "" : "[" + ty.config + "] ";
+                String tn = ty.typeName;
                 for (Entry e : ty.entries) {
                     int resId = (int) ((p.id << 24) | (ty.id << 16) | (e.index & 0xFFFF));
-                    String tn = typeName(p, ty);
                     out.append("  ").append(configTag).append("0x").append(ResUtil.hex8(resId))
                             .append("  ").append(tn).append('/').append(e.key);
                     // id 资源没有真实值（aapt 用布尔 false 占位），只列名字
-                    if ("id".equals(tn)) {
+                    if (ty.isId) {
                         out.append("\n");
                         continue;
                     }
@@ -338,6 +347,10 @@ public class ArscParser {
         int sw;         // 最小宽度 dp
         int sdk;        // sdkVersion
         List<Entry> entries = new ArrayList<>();
+        /** 展示用派生字段，解析阶段一次性预计算，避免每条目重复做 typeName 子串。 */
+        String typeName;
+        boolean qualified;
+        boolean isId;
     }
 
     /**

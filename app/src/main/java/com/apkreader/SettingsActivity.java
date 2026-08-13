@@ -22,7 +22,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 输出设置页：选择解码 arsc 时保留的语言 / 分辨率 / 版本。
+ * 资源解析设置页：选择解码 arsc 时保留的语言 / 分辨率 / 版本，以及解析结果的输出路径。
  * 选择结果存 SharedPreferences("settings")，解析时由
  * {@link #loadFilter(Context)} 转成 {@link ArscParser.ConfigFilter}。
  */
@@ -34,6 +34,10 @@ public class SettingsActivity extends AppCompatActivity {
     private static final String KEY_DENSITY_MODE = "density_mode";
     private static final String KEY_DENSITY_CUSTOM = "density_custom";
     private static final String KEY_VERSION_MODE = "version_mode";
+    private static final String KEY_PARSE_OUTPUT_PATH = "parse_output_path";
+
+    /** 输出路径默认值：绝对路径目录，360 修复默认与之相同。 */
+    public static final String DEFAULT_OUTPUT_PATH = "/sdcard/APK解析工具";
 
     private static final String[] LANG_PRESETS = {
             "zh", "en", "ja", "ko", "hi", "my", "ar", "es", "fr", "de", "ru", "pt",
@@ -44,6 +48,7 @@ public class SettingsActivity extends AppCompatActivity {
     private RadioGroup langGroup, densityGroup, versionGroup;
     private LinearLayout langCustomBox, densityCustomBox;
     private EditText langOther, densityOther;
+    private EditText parsePathInput;
     private final List<CheckBox> langChecks = new ArrayList<>();
     private final List<CheckBox> densityChecks = new ArrayList<>();
 
@@ -61,6 +66,9 @@ public class SettingsActivity extends AppCompatActivity {
         densityCustomBox = findViewById(R.id.densityCustomBox);
         langOther = findViewById(R.id.langOther);
         densityOther = findViewById(R.id.densityOther);
+        parsePathInput = findViewById(R.id.parsePathInput);
+        parsePathInput.setText(getSharedPreferences(PREFS, MODE_PRIVATE)
+                .getString(KEY_PARSE_OUTPUT_PATH, DEFAULT_OUTPUT_PATH));
 
         fillGrid(findViewById(R.id.langGrid), LANG_PRESETS, langChecks);
         fillGrid(findViewById(R.id.densityGrid), DENSITY_PRESETS, densityChecks);
@@ -89,6 +97,7 @@ public class SettingsActivity extends AppCompatActivity {
             e.putString(KEY_DENSITY_MODE, modeOf(densityGroup, R.id.radioDensityAll, R.id.radioDensityDefault, R.id.radioDensityCustom, "all"));
             e.putString(KEY_DENSITY_CUSTOM, collectCustom(densityChecks, densityOther));
             e.putString(KEY_VERSION_MODE, versionGroup.getCheckedRadioButtonId() == R.id.radioVersionMax ? "max" : "all");
+            e.putString(KEY_PARSE_OUTPUT_PATH, sanitizePath(parsePathInput.getText().toString(), DEFAULT_OUTPUT_PATH));
             e.apply();
             finish();
         });
@@ -162,6 +171,42 @@ public class SettingsActivity extends AppCompatActivity {
             if (!t.isEmpty()) out.add(t);
         }
         return out;
+    }
+
+    /** 资源解析结果的保存目录（绝对路径，可含子目录如 "/sdcard/工具输出/备份"）。 */
+    public static String loadParseOutputPath(Context ctx) {
+        return absolutePath(sanitizePath(ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_PARSE_OUTPUT_PATH, DEFAULT_OUTPUT_PATH), DEFAULT_OUTPUT_PATH));
+    }
+
+    /** 360 修复结果的保存目录：未单独配置时跟随资源解析的输出路径，可各自独立配置。 */
+    public static String loadFixOutputPath(Context ctx) {
+        String stored = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString("fix_output_path", null);
+        if (stored == null) return loadParseOutputPath(ctx);
+        return absolutePath(sanitizePath(stored, DEFAULT_OUTPUT_PATH));
+    }
+
+    /** 旧版 prefs 可能存了相对路径（如 "APK解析工具"），统一补成 /sdcard/ 绝对路径。 */
+    static String absolutePath(String p) {
+        return (p != null && !p.startsWith("/")) ? "/sdcard/" + p : p;
+    }
+
+    /** 360 修复后是否重新签名打包，默认 true。 */
+    public static boolean loadFixSign(Context ctx) {
+        return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("fix_sign", true);
+    }
+
+    /**
+     * 输出路径清洗：保留绝对路径原样 —— trim、\ 转 /、折叠连续斜杠、去尾部斜杠，
+     * 空结果回退默认值。目录是否为绝对路径由 {@link #absolutePath} 补全。
+     */
+    static String sanitizePath(String s, String fallback) {
+        if (s == null) return fallback;
+        String t = s.trim().replace('\\', '/');
+        while (t.contains("//")) t = t.replace("//", "/");
+        while (t.length() > 1 && t.endsWith("/")) t = t.substring(0, t.length() - 1);
+        return t.isEmpty() ? fallback : t;
     }
 
     /** 读取保存的设置，构建解析过滤条件；无设置时默认全部显示。 */

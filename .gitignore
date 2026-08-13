@@ -24,10 +24,8 @@ local.properties
 # 服务密钥（如 Firebase）
 google-services.json
 
-# 签名文件（勿上传）
-*.jks
-*.keystore
-*.p12
+# 签名文件公开（360 修复功能运行时需用同一密钥重签名，密钥作为 asset 打入 APK，
+# 故签名密钥与密码不再私有化）
 
 # 测试输出残留
 tools/harness_out.txt
