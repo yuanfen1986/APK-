@@ -146,11 +146,11 @@ public final class AXmlEditor {
             if (!s.isEmpty()) idxMap.putIfAbsent(s, i);
         }
         List<String> toAdd = new ArrayList<>();
-        int nameIdx = ensure(idxMap, "uses-permission", toAdd);
-        int androidNsIdx = ensure(idxMap, NS_ANDROID, toAdd);
-        int attrNameIdx = ensure(idxMap, "name", toAdd);
+        int nameIdx = ensure(idxMap, "uses-permission", toAdd, stringCount);
+        int androidNsIdx = ensure(idxMap, NS_ANDROID, toAdd, stringCount);
+        int attrNameIdx = ensure(idxMap, "name", toAdd, stringCount);
         int[] permIdx = new int[add.size()];
-        for (int i = 0; i < add.size(); i++) permIdx[i] = ensure(idxMap, add.get(i), toAdd);
+        for (int i = 0; i < add.size(); i++) permIdx[i] = ensure(idxMap, add.get(i), toAdd, stringCount);
 
         // 编码新增字符串（与池同编码），offsets 相对新 stringsStart
         int n = toAdd.size();
@@ -162,7 +162,11 @@ public final class AXmlEditor {
         }
         int oldDataLen = poolSize - stringsStart;
         byte[] offBytes = new byte[4 * n];
-        byte[] stringData = new byte[total];
+        // 池 chunk size 必须是 4 的倍数（aapt2 / Android ResXMLTree 强制校验，
+        // 否则报 "XML size ... is not on an integer boundary"），追加的字符串数据
+        // 末尾按需补 0 对齐。
+        int pad = (4 - ((poolSize + 4 * n + total) % 4)) % 4;
+        byte[] stringData = new byte[total + pad];
         int running = 0;
         for (int i = 0; i < n; i++) {
             writeInt(offBytes, i * 4, oldDataLen + running);
@@ -203,8 +207,9 @@ public final class AXmlEditor {
             writeInt(chunks, p + 76, nameIdx);      // "uses-permission"
         }
 
-        // 三段插入：偏移数组后插新偏移；池末尾追加字符串数据；根元素 chunk 后插元素 chunk
-        int insertOffsets = poolStart + poolHs + (stringCount + styleCount) * 4;
+        // 三段插入：字符串偏移数组后插新偏移（在样式偏移之前，使新串索引 == stringCount + j）；
+        // 池末尾追加字符串数据；根元素 chunk 后插元素 chunk
+        int insertOffsets = poolStart + poolHs + stringCount * 4;
         int poolEnd = poolStart + poolSize;
         int rootEnd = rootStart + rootSize;
         byte[] out = concat(
@@ -215,19 +220,22 @@ public final class AXmlEditor {
                 Arrays.copyOfRange(xml, poolEnd, rootEnd),
                 chunks,
                 Arrays.copyOfRange(xml, rootEnd, xmlSize));
-        writeInt(out, 4, xmlSize + 4 * n + total + chunks.length);          // XML 头总长度
-        writeInt(out, poolStart + 4, poolSize + 4 * n + total);             // 池 chunk size
+        writeInt(out, 4, xmlSize + 4 * n + total + pad + chunks.length);    // XML 头总长度
+        writeInt(out, poolStart + 4, poolSize + 4 * n + total + pad);       // 池 chunk size
         writeInt(out, poolStart + 8, stringCount + n);                      // stringCount
         writeInt(out, poolStart + 20, stringsStart + 4 * n);                // stringsStart
         if (styleCount > 0) writeInt(out, poolStart + 24, stylesStart + 4 * n); // stylesStart
         return out;
     }
 
-    /** 在索引表里找字符串，没有则登记为待新增并分配新索引。 */
-    private static int ensure(Map<String, Integer> idxMap, String s, List<String> toAdd) {
+    /** 在索引表里找字符串，没有则登记为待新增并分配新索引。
+     *  新索引必须从 stringCount 起（新偏移写在偏移数组尾部），不能用 idxMap.size()：
+     *  池中空槽（0xFFFFFFFF）和重复字符串不会被 idxMap 收录，两者并不相等，
+     *  用 idxMap.size() 会让新索引撞上已有的池字符串。 */
+    private static int ensure(Map<String, Integer> idxMap, String s, List<String> toAdd, int stringCount) {
         Integer e = idxMap.get(s);
         if (e != null) return e;
-        int idx = idxMap.size();
+        int idx = stringCount + toAdd.size();
         idxMap.put(s, idx);
         toAdd.add(s);
         return idx;
@@ -261,28 +269,33 @@ public final class AXmlEditor {
         return new int[]{poolStart, poolSize, rootStart, rootSize, xmlSize};
     }
 
-    /** 编码一条池字符串（与池存储格式一致，长度前缀 + 数据）。 */
+    /** 编码一条池字符串（与池存储格式一致，长度前缀 + 数据 + 结尾空字符）。
+     *  空字符必须写：aapt2/ResStringPool 校验每个字符串后的 null 终结符，
+     *  缺了会报 "Bad string block: string #N is not null-terminated" 并把
+     *  该字符串视为空值。 */
     private static byte[] encodeString(String s, boolean utf8) {
         if (utf8) {
             byte[] data = s.getBytes(StandardCharsets.UTF_8);
             int len = utf8LenSize(s.length()) + utf8LenSize(data.length);
-            ByteBuffer b = ByteBuffer.allocate(len + data.length);
+            ByteBuffer b = ByteBuffer.allocate(len + data.length + 1);
             writeUtf8Len(b, s.length());
             writeUtf8Len(b, data.length);
             b.put(data);
+            b.put((byte) 0);
             return b.array();
         }
         int units = s.length();
         ByteBuffer b;
         if (units < 0x8000) {
-            b = ByteBuffer.allocate(2 + units * 2).order(ByteOrder.LITTLE_ENDIAN);
+            b = ByteBuffer.allocate(2 + units * 2 + 2).order(ByteOrder.LITTLE_ENDIAN);
             b.putShort((short) units);
         } else {
-            b = ByteBuffer.allocate(4 + units * 2).order(ByteOrder.LITTLE_ENDIAN);
+            b = ByteBuffer.allocate(4 + units * 2 + 2).order(ByteOrder.LITTLE_ENDIAN);
             b.putShort((short) (0x8000 | (units & 0x7FFF)));
             b.putShort((short) (units >> 15));
         }
         b.put(s.getBytes(StandardCharsets.UTF_16LE));
+        b.putShort((short) 0);
         return b.array();
     }
 

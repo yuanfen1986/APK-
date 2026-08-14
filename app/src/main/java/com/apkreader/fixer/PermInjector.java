@@ -24,6 +24,7 @@ import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
@@ -43,7 +44,9 @@ import java.util.zip.ZipFile;
  *
  * 辅助类 PermCheck 用 baksmali 文本形式生成，与目标方法写进同一 dex；其它 dex 跨 dex
  * 引用该类在 ART 上合法。MANAGE_EXTERNAL_STORAGE 不走 requestPermissions，而是
- * 跳转系统「所有文件访问」设置页。
+ * 跳转系统「所有文件访问」设置页。权限按平台版本分门别类加门禁：READ_MEDIA_* 仅
+ * API 33+、READ_EXTERNAL_STORAGE 仅 23-32、WRITE_EXTERNAL_STORAGE 仅 23-28、
+ * MANAGE 仅 API 30+，低版本设备上直接跳过，避免请求无效权限或抛 NoSuchMethodError。
  */
 public final class PermInjector {
 
@@ -54,6 +57,17 @@ public final class PermInjector {
 
     /** 请求码（requestPermissions 的第二个参数），任意非 0 值。 */
     private static final int REQ_CODE = 0x6d;
+
+    private static final String PERM_MANAGE_EXTERNAL_STORAGE = "android.permission.MANAGE_EXTERNAL_STORAGE";
+    private static final String PERM_READ_EXTERNAL_STORAGE = "android.permission.READ_EXTERNAL_STORAGE";
+    private static final String PERM_WRITE_EXTERNAL_STORAGE = "android.permission.WRITE_EXTERNAL_STORAGE";
+
+    /** 仅在 API 33+ 作为运行时权限存在（低版本申请会静默失败），需加最小版本门禁。 */
+    private static final Set<String> MEDIA_PERMS = Collections.unmodifiableSet(
+            new LinkedHashSet<>(Arrays.asList(
+                    "android.permission.READ_MEDIA_IMAGES",
+                    "android.permission.READ_MEDIA_VIDEO",
+                    "android.permission.READ_MEDIA_AUDIO")));
 
     private PermInjector() {
     }
@@ -182,14 +196,16 @@ public final class PermInjector {
      * 生成辅助类 smali 文本。类描述符如 Lcom/apktool/perminject/PermCheck;。
      * 逻辑：API&lt;23 直接返回；把每个运行时权限的缺失项收集进 ArrayList；
      * 列表非空且调用者是 Activity 时 requestPermissions 申请（MANAGE_EXTERNAL_STORAGE
-     * 除外，它走系统设置页）。MANAGE_EXTERNAL_STORAGE 单独处理：系统未授予时
-     * 启动「所有文件访问」设置页。
+     * 除外，它走系统设置页）。每个权限按平台版本门禁（见 {@link #sdkGuard}）：
+     * READ_MEDIA_* 仅 API 33+、READ/WRITE_EXTERNAL_STORAGE 分别在 API 32/28 以上
+     * 失效，这些情况下直接跳过；MANAGE 整块仅 API 30+ 执行，否则调用
+     * Environment.isExternalStorageManager 会抛 NoSuchMethodError。
      */
     static String buildHelperSmali(String helper, List<String> perms) {
-        List<String> runtime = new ArrayList<>();
+        Set<String> runtime = new LinkedHashSet<>();
         boolean manage = false;
         for (String p : perms) {
-            if ("android.permission.MANAGE_EXTERNAL_STORAGE".equals(p)) manage = true;
+            if (PERM_MANAGE_EXTERNAL_STORAGE.equals(p)) manage = true;
             else runtime.add(p);
         }
         StringBuilder sb = new StringBuilder();
@@ -198,21 +214,25 @@ public final class PermInjector {
         sb.append(".method public static check(Landroid/content/Context;)V\n");
         sb.append("    .registers 12\n\n");
         // 寄存器分配（p0=v11）：v0 sdk / v1 缺失列表 / v2 权限串 / v3 检查结果 / v4 临时
-        // v5 计数 / v6 String[] / v7 未用 / v8 未用 / v9 临时 / v10 未用
+        // v5 计数/版本常量 / v6 String[] / v7 Activity 引用 / v8 未用 / v9 临时 / v10 未用
         sb.append("    # API < 23 无运行时权限，直接返回\n");
         sb.append("    sget v0, Landroid/os/Build$VERSION;->SDK_INT:I\n");
         sb.append("    const/16 v5, 0x17\n");
         sb.append("    if-lt v0, v5, :done\n\n");
         sb.append("    new-instance v1, Ljava/util/ArrayList;\n");
         sb.append("    invoke-direct {v1}, Ljava/util/ArrayList;-><init>()V\n\n");
-        for (int i = 0; i < runtime.size(); i++) {
-            sb.append("    # ").append(runtime.get(i)).append('\n');
-            sb.append("    const-string v2, \"").append(runtime.get(i)).append("\"\n");
+        int i = 0;
+        for (String p : runtime) {
+            sb.append("    # ").append(p).append('\n');
+            String guard = sdkGuard(p, i);
+            if (guard != null) sb.append(guard);
+            sb.append("    const-string v2, \"").append(p).append("\"\n");
             sb.append("    invoke-virtual {p0, v2}, Landroid/content/Context;->checkSelfPermission(Ljava/lang/String;)I\n");
             sb.append("    move-result v3\n");
             sb.append("    if-eqz v3, :perm_").append(i).append("_ok\n");
             sb.append("    invoke-virtual {v1, v2}, Ljava/util/ArrayList;->add(Ljava/lang/Object;)Z\n");
             sb.append("    :perm_").append(i).append("_ok\n\n");
+            i++;
         }
         sb.append("    # 缺失列表为空则跳过申请\n");
         sb.append("    invoke-virtual {v1}, Ljava/util/ArrayList;->isEmpty()Z\n");
@@ -221,7 +241,9 @@ public final class PermInjector {
         sb.append("    # 只有 Activity 上下文才能直接弹授权框\n");
         sb.append("    instance-of v4, p0, Landroid/app/Activity;\n");
         sb.append("    if-eqz v4, :request_done\n\n");
-        sb.append("    check-cast v4, Landroid/app/Activity;\n");
+        // instance-of 后 v4 是 int，不能直接 check-cast；先复制 p0 到空闲寄存器 v7 再转。
+        sb.append("    move-object v7, p0\n");
+        sb.append("    check-cast v7, Landroid/app/Activity;\n");
         sb.append("    # 构建 String[] 权限数组并申请\n");
         sb.append("    invoke-virtual {v1}, Ljava/util/ArrayList;->size()I\n");
         sb.append("    move-result v5\n");
@@ -239,10 +261,14 @@ public final class PermInjector {
         sb.append("    goto :arr_loop\n");
         sb.append("    :arr_done\n");
         sb.append("    const/16 v9, ").append(hex(REQ_CODE)).append("\n");
-        sb.append("    invoke-virtual {v4, v6, v9}, Landroid/app/Activity;->requestPermissions([Ljava/lang/String;I)V\n");
+        sb.append("    invoke-virtual {v7, v6, v9}, Landroid/app/Activity;->requestPermissions([Ljava/lang/String;I)V\n");
         sb.append("    :request_done\n\n");
         if (manage) {
             sb.append("    # MANAGE_EXTERNAL_STORAGE：未授予时跳转系统「所有文件访问」设置页\n");
+            sb.append("    # isExternalStorageManager 与设置页 Action 均为 API 30+，低版本整块跳过\n");
+            sb.append("    sget v0, Landroid/os/Build$VERSION;->SDK_INT:I\n");
+            sb.append("    const/16 v5, 0x1e\n");
+            sb.append("    if-lt v0, v5, :done\n");
             sb.append("    invoke-static {}, Landroid/os/Environment;->isExternalStorageManager()Z\n");
             sb.append("    move-result v4\n");
             sb.append("    if-nez v4, :done\n");
@@ -256,10 +282,18 @@ public final class PermInjector {
             sb.append("    move-result-object v4\n");
             sb.append("    invoke-static {v4}, Landroid/net/Uri;->parse(Ljava/lang/String;)Landroid/net/Uri;\n");
             sb.append("    move-result-object v4\n");
-            sb.append("    invoke-virtual {v3, v4}, Landroid/content/Intent;->setData(Landroid/net/Uri;)Landroid/net/Uri;\n");
+            sb.append("    invoke-virtual {v3, v4}, Landroid/content/Intent;->setData(Landroid/net/Uri;)Landroid/content/Intent;\n");
             sb.append("    const/high16 v4, 0x10000000\n");
             sb.append("    invoke-virtual {v3, v4}, Landroid/content/Intent;->addFlags(I)Landroid/content/Intent;\n");
+            // 部分定制 ROM（鸿蒙/澎湃等）可能没有该设置 Action，包 try/catch 避免
+            // ActivityNotFoundException 闪退；非 Activity 上下文启动需 NEW_TASK（上面已加）。
+            sb.append("    .catch Ljava/lang/Exception; {:try_manage .. :try_manage_end} :catch_manage\n");
+            sb.append("    :try_manage\n");
             sb.append("    invoke-virtual {p0, v3}, Landroid/content/Context;->startActivity(Landroid/content/Intent;)V\n");
+            sb.append("    :try_manage_end\n");
+            sb.append("    goto :done\n");
+            sb.append("    :catch_manage\n");
+            sb.append("    goto :done\n");
         }
         sb.append("    :done\n");
         sb.append("    return-void\n");
@@ -269,6 +303,33 @@ public final class PermInjector {
 
     private static String hex(int v) {
         return "0x" + Integer.toHexString(v);
+    }
+
+    /**
+     * 权限的按 SDK 门禁指令（插在对应 checkSelfPermission 之前），null 表示无需门禁。
+     * 平台规则：READ_MEDIA_* 是 API 33 才引入的权限（30-32 不认识该串，申请静默失败）；
+     * READ_EXTERNAL_STORAGE 在 33+ 已废弃并映射到 READ_MEDIA_*，只在 23-32 有意义；
+     * WRITE_EXTERNAL_STORAGE 官方 maxSdkVersion=28，29+ 无任何作用。
+     * 返回的 smali 用 :perm_{i}_ok 标签跳过「检查 + 加入缺失列表」。
+     */
+    private static String sdkGuard(String perm, int i) {
+        String sdkConst;
+        boolean skipIfLower; // true=低于该版本才跳过（最小版本门禁），false=高于该版本跳过
+        if (MEDIA_PERMS.contains(perm)) {
+            sdkConst = "0x21"; // API 33
+            skipIfLower = true;
+        } else if (PERM_READ_EXTERNAL_STORAGE.equals(perm)) {
+            sdkConst = "0x20"; // API 32
+            skipIfLower = false;
+        } else if (PERM_WRITE_EXTERNAL_STORAGE.equals(perm)) {
+            sdkConst = "0x1c"; // API 28
+            skipIfLower = false;
+        } else {
+            return null;
+        }
+        String op = skipIfLower ? "if-lt" : "if-gt";
+        return "    const/16 v5, " + sdkConst + "\n"
+                + "    " + op + " v0, v5, :perm_" + i + "_ok\n";
     }
 
     /** 从所有 smali 目录取已占用类描述符，返回第一个空闲的 PermCheck 候选。 */
@@ -305,18 +366,24 @@ public final class PermInjector {
         boolean inTarget = false;
         boolean injectedThis = false;
         boolean injectedAny = false;
+        int annotationDepth = 0; // 注解块内（value = { ... }、子注解）不是指令，不得插入注入行
         for (String line : lines) {
             String t = line.trim();
             if (t.startsWith(".method")) {
                 inTarget = isTargetMethod(t);
                 injectedThis = false;
+                annotationDepth = 0;
             }
-            if (inTarget && !injectedThis && isInstruction(t)) {
+            if (t.startsWith(".annotation")) annotationDepth++;
+            if (t.startsWith("value = .subannotation")) annotationDepth++;
+            if (inTarget && annotationDepth == 0 && !injectedThis && isInstruction(t)) {
                 out.add(helperCall);
                 injectedThis = true;
                 injectedAny = true;
             }
             out.add(line);
+            if (t.startsWith(".end annotation")) annotationDepth--;
+            if (t.startsWith(".end subannotation")) annotationDepth--;
             if (t.startsWith(".end method")) inTarget = false;
         }
         if (!injectedAny) return false;

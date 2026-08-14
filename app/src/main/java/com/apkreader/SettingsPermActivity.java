@@ -81,10 +81,11 @@ public class SettingsPermActivity extends AppCompatActivity {
         });
     }
 
-    /** 读取要添加的权限列表；未配置过或为空时默认全选。 */
+    /** 读取要添加的权限列表；从未配置过（无 perm_list 键）时默认全选，
+     *  显式保存的空列表保持为空（用户取消全部勾选后保存应生效）。 */
     public static List<String> loadPermList(Context ctx) {
         String s = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_PERM_LIST, null);
-        if (s == null || s.trim().isEmpty()) return new ArrayList<>(Arrays.asList(ALL_PERMS));
+        if (s == null) return new ArrayList<>(Arrays.asList(ALL_PERMS));
         List<String> out = new ArrayList<>();
         for (String t : s.split(",")) {
             t = t.trim();

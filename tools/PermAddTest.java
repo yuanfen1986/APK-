@@ -92,6 +92,47 @@ public class PermAddTest {
     }
 
     /** UTF-16 字符串池（flags=0x0）：长度前缀为小端 u16，数据 UTF-16LE，与真实 aapt2 manifest 一致。 */
+    /** 带空槽的池：offset 数组第 gapIdx 项写 0xFFFFFFFF（数据仍按序存放但不被引用），
+     *  模拟真实 aapt2 manifest 中被删除/闲置的字符串槽位。 */
+    static byte[] utf8PoolGap(String[] strs, int... gapIdx) {
+        int headerSize = 28;
+        int stringsStart = headerSize + 4 * strs.length;
+        List<byte[]> datas = new ArrayList<>();
+        int dataLen = 0;
+        int[] offsets = new int[strs.length];
+        for (int i = 0; i < strs.length; i++) {
+            offsets[i] = dataLen;
+            byte[] raw = strs[i].getBytes(StandardCharsets.UTF_8);
+            ByteArrayOutputStream s = new ByteArrayOutputStream();
+            s.write(strs[i].length());
+            s.write(raw.length);
+            s.write(raw, 0, raw.length);
+            s.write(0);
+            byte[] sd = s.toByteArray();
+            datas.add(sd);
+            dataLen += sd.length;
+            while ((dataLen & 3) != 0) dataLen++;
+        }
+        for (int g : gapIdx) offsets[g] = 0xFFFFFFFF;
+        int size = stringsStart + dataLen;
+        Buf out = new Buf();
+        out.u16(0x0001);
+        out.u16(headerSize);
+        out.u32(size);
+        out.u32(strs.length);
+        out.u32(0);
+        out.u32(0x100);
+        out.u32(stringsStart);
+        out.u32(0);
+        for (int o : offsets) out.u32(o);
+        for (byte[] sd : datas) {
+            out.bytes(sd);
+            int pad = (4 - (sd.length & 3)) & 3;
+            while (pad-- > 0) out.write(0);
+        }
+        return out.toByteArray();
+    }
+
     static byte[] utf16Pool(String[] strs) {
         int headerSize = 28;
         int stringsStart = headerSize + 4 * strs.length;
@@ -221,6 +262,56 @@ public class PermAddTest {
         return out.toByteArray();
     }
 
+    /**
+     * 含空槽与冗余串的池：idxMap.size()（16）比 stringCount（18）小 2。修复前 ensure()
+     * 以 idxMap.size() 分配新索引，首个权限名撞上池中第 16 项 "uses-sdk"、第二个撞上
+     * 空槽 —— 精确复现真实 apk 上「权限名为 uses-sdk/空值」的现场。
+     */
+    static byte[] buildXmlGap() {
+        String[] pool = {
+                "http://schemas.android.com/apk/res/android", // 0 android ns
+                "manifest",            // 1
+                "package",             // 2
+                "com.example.demo",    // 3
+                "application",         // 4
+                "activity",            // 5
+                "name",                // 6
+                ".MainActivity",       // 7
+                ".App",                // 8
+                "intent-filter",       // 9
+                "action",              // 10
+                "category",            // 11
+                "android.intent.action.MAIN",   // 12
+                "android.intent.category.LAUNCHER", // 13
+                "uses-permission",     // 14 已存在于池中
+                "dummy-removed",       // 15 空槽
+                "uses-sdk",            // 16 修复前首个新索引会撞上它
+                "dummy-removed2",      // 17 空槽
+        };
+        byte[] poolBytes = utf8PoolGap(pool, 15, 17);
+        Buf body = new Buf();
+        startElem(body, -1, 1, new int[][]{{-1, 2, 3, 0x03, 3}});
+        startElem(body, -1, 4, new int[][]{{0, 6, 8, 0x03, 8}});
+        startElem(body, -1, 5, new int[][]{{0, 6, 7, 0x03, 7}});
+        startElem(body, -1, 9, new int[][]{});
+        startElem(body, -1, 10, new int[][]{{0, 6, 12, 0x03, 12}});
+        endElem(body, -1, 10);
+        startElem(body, -1, 11, new int[][]{{0, 6, 13, 0x03, 13}});
+        endElem(body, -1, 11);
+        endElem(body, -1, 9);
+        endElem(body, -1, 5);
+        endElem(body, -1, 4);
+        endElem(body, -1, 1);
+
+        Buf out = new Buf();
+        out.u16(0x0003);
+        out.u16(8);
+        out.u32(8 + poolBytes.length + body.size());
+        out.bytes(poolBytes);
+        out.bytes(body.toByteArray());
+        return out.toByteArray();
+    }
+
     public static void main(String[] args) throws Exception {
         // 1) 基础往返 + readManifest 元信息
         byte[] xml = buildXml();
@@ -296,6 +387,24 @@ public class PermAddTest {
             }
             check(fI && fR, "UTF-16 池权限名正确: INTERNET=" + fI + " READ=" + fR);
             check(AXmlEditor.addPermissions(out16, perms) == null, "UTF-16 池重复添加返回 null");
+        }
+
+        // 4) 空槽池回归：idxMap.size() != stringCount 时，新索引必须以 stringCount 为基
+        byte[] xmlGap = buildXmlGap();
+        byte[] outGap = AXmlEditor.addPermissions(xmlGap, perms);
+        check(outGap != null, "空槽池 addPermissions 返回非空字节");
+        if (outGap != null) {
+            AXmlParser.Node r4 = new AXmlParser(null).parseTree(outGap);
+            check(r4 != null && "manifest".equals(r4.name), "空槽池输出重新解析成功，根为 manifest");
+            List<AXmlParser.Node> ups4 = childrenNamed(r4, "uses-permission");
+            check(ups4.size() == 2, "空槽池新增 2 个 uses-permission（实际 " + ups4.size() + "）");
+            if (ups4.size() == 2) {
+                String v0 = attr(ups4.get(0), AXmlEditor.NS_ANDROID, "name");
+                String v1 = attr(ups4.get(1), AXmlEditor.NS_ANDROID, "name");
+                check(perms.contains(v0) && perms.contains(v1) && !v0.equals(v1),
+                        "空槽池权限名正确（修复前 v0=uses-sdk 或空值）: " + v0 + ", " + v1);
+            }
+            check(AXmlEditor.addPermissions(outGap, perms) == null, "空槽池重复添加返回 null（幂等）");
         }
 
         System.out.println(fails == 0 ? "ALL PASS" : fails + " FAILURES");

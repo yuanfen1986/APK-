@@ -76,6 +76,25 @@ public class PermInjectorTest {
             + "    return-void\n"
             + ".end method\n";
 
+    /** onCreate 方法体以注解块（含多行数组值）开头：注入行必须落在 .end annotation 之后，
+     *  否则 smali 重汇编报 missing EQUAL（invoke-static {p0} 被当作注解元素值）。 */
+    static final String ACTIVITY_ANNOTATION_FIRST =
+            ".class public Lcom/example/AnnotActivity;\n"
+            + ".super Landroid/app/Activity;\n"
+            + "\n"
+            + ".method protected onCreate(Landroid/os/Bundle;)V\n"
+            + "    .registers 2\n"
+            + "    .annotation system Ldalvik/annotation/Throws;\n"
+            + "        value = {\n"
+            + "            Ljava/lang/Exception;\n"
+            + "        }\n"
+            + "    .end annotation\n"
+            + "\n"
+            + "    invoke-super {p0, p1}, Landroid/app/Activity;->onCreate(Landroid/os/Bundle;)V\n"
+            + "\n"
+            + "    return-void\n"
+            + ".end method\n";
+
     public static void main(String[] args) throws Exception {
         Path dir = Files.createTempDirectory("perminjtest");
 
@@ -114,6 +133,19 @@ public class PermInjectorTest {
         check(!second, "已注入过的文件再次调用返回 false");
         String s4 = new String(Files.readAllBytes(f4.toPath()), StandardCharsets.UTF_8);
         check(count(s4, CALL) == 1, "单文件重复调用只插入 1 条（实际 " + count(s4, CALL) + "）");
+
+        // 5) 注解块在方法体开头：注入行必须跳过注解区，落在 .end annotation 与 invoke-super 之间
+        File f5 = write(dir, "AnnotActivity.smali", ACTIVITY_ANNOTATION_FIRST);
+        boolean r5 = PermInjector.injectIntoSmaliFile(f5, CALL);
+        check(r5, "方法体开头有注解块时注入返回 true");
+        String s5 = new String(Files.readAllBytes(f5.toPath()), StandardCharsets.UTF_8);
+        int call5 = s5.indexOf(CALL);
+        int endAnn5 = s5.indexOf(".end annotation");
+        int inv5 = s5.indexOf("invoke-super", s5.indexOf(".method protected onCreate"));
+        check(call5 >= 0 && endAnn5 >= 0 && inv5 >= 0
+                        && call5 > endAnn5 && call5 < inv5,
+                "注入行位于 .end annotation 之后、invoke-super 之前");
+        check(count(s5, CALL) == 1, "注解开头形态仅注入 1 条");
 
         System.out.println(fails == 0 ? "ALL PASS" : fails + " FAILURES");
         System.exit(fails == 0 ? 0 : 1);

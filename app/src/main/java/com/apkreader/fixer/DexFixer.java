@@ -15,7 +15,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.PrintStream;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
@@ -35,6 +37,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.regex.Pattern;
+import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
@@ -290,15 +293,28 @@ public class DexFixer {
      */
     static void repack(File inputApk, File outputApk, Map<String, File> fixedDexes,
                        Map<String, byte[]> replacedBytes) throws Exception {
-        try (ZipFile zf = new ZipFile(inputApk); ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(outputApk))) {
+        try (ZipFile zf = new ZipFile(inputApk);
+             CountingOutputStream cos = new CountingOutputStream(new FileOutputStream(outputApk));
+             ZipOutputStream zos = new ZipOutputStream(cos)) {
             Enumeration<? extends ZipEntry> es = zf.entries();
             while (es.hasMoreElements()) {
                 ZipEntry e = es.nextElement();
                 String n = e.getName();
                 if (fixedDexes.containsKey(n)) continue;
                 if (isSignatureEntry(n)) continue;
-                zos.putNextEntry(new ZipEntry(n));
+                // 复制原条目而非新建，保留压缩方式与 size/crc：Android 11+ 要求
+                // resources.arsc 必须 STORED 且数据偏移 4 字节对齐，重压缩会安装失败。
+                ZipEntry ne = new ZipEntry(e);
                 byte[] rb = replacedBytes.get(n);
+                if ("resources.arsc".equals(n) || ne.getMethod() == ZipEntry.STORED) {
+                    ne.setMethod(ZipEntry.STORED);
+                    ne.setExtra(alignmentExtra(cos.count, n));
+                }
+                if (rb != null) {
+                    ne.setSize(rb.length);
+                    ne.setCrc(crc32(rb));
+                }
+                zos.putNextEntry(ne);
                 if (rb != null) {
                     zos.write(rb);
                 } else {
@@ -319,6 +335,60 @@ public class DexFixer {
                 }
                 zos.closeEntry();
             }
+        }
+    }
+
+    /**
+     * 生成 zipalign 风格的 0x7777 对齐 extra 字段，使条目数据偏移 4 字节对齐。
+     * 字段格式：id(0x7777, 2B) + size(E, 2B LE) + E 字节填充，总长 4+E。
+     * 数据偏移 = pos + 30 + nameLen + (4+E)，取 E=(4-(pos+30+nameLen)%4)%4 后必为 4 的倍数。
+     */
+    private static byte[] alignmentExtra(long pos, String name) {
+        int nameLen = name.getBytes(StandardCharsets.UTF_8).length;
+        int e = (int) ((4 - ((pos + 30 + nameLen) % 4)) % 4);
+        byte[] extra = new byte[4 + e];
+        extra[0] = 0x77;
+        extra[1] = 0x77;
+        extra[2] = (byte) e;
+        extra[3] = 0;
+        return extra;
+    }
+
+    private static long crc32(byte[] data) {
+        CRC32 c = new CRC32();
+        c.update(data);
+        return c.getValue();
+    }
+
+    /** 统计写入底层流的字节数，用于 putNextEntry 前计算各条目本地头的绝对偏移。 */
+    private static final class CountingOutputStream extends OutputStream {
+        final OutputStream out;
+        long count;
+
+        CountingOutputStream(OutputStream out) {
+            this.out = out;
+        }
+
+        @Override
+        public void write(int b) throws IOException {
+            out.write(b);
+            count++;
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len) throws IOException {
+            out.write(b, off, len);
+            count += len;
+        }
+
+        @Override
+        public void flush() throws IOException {
+            out.flush();
+        }
+
+        @Override
+        public void close() throws IOException {
+            out.close();
         }
     }
 
